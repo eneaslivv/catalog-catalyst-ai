@@ -1,6 +1,6 @@
 // import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const apiKey = 'AIzaSyDGnctjXa13UP-rz4kCQNQfbuWBIIXb_ro';
+const apiKey = process.env.GOOGLE_API_KEY;
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 const rawDataProxy = {
