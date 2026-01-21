@@ -10,6 +10,7 @@ export interface ProductDraftFields {
   imagenUrl?: { value: string | null; confidence: number; sources: string[]; warnings: string[] };
   imagenDescripcion?: { value: string | null; confidence: number; sources: string[]; warnings: string[] };
   precioUnitario?: { value: number; currency: string; confidence: number; sources: string[]; warnings: string[] };
+  marca?: { value: string; confidence: number; sources: string[]; warnings: string[] };
   moq?: { value: number; confidence: number; sources: string[]; warnings: string[] };
   medidasNetas?: { value: { length: number; width: number; height: number; unit: string }; confidence: number; sources: string[]; warnings: string[] };
   pesoNeto?: { value: number; confidence: number; sources: string[]; warnings: string[] };
@@ -71,8 +72,8 @@ export function useProductDrafts(jobId?: string) {
         ...d,
         fields: (d.fields || {}) as unknown as ProductDraftFields,
         images: Array.isArray(d.images) ? d.images as string[] : [],
-        verification_checklist: Array.isArray(d.verification_checklist) 
-          ? d.verification_checklist as unknown as VerificationItem[] 
+        verification_checklist: Array.isArray(d.verification_checklist)
+          ? d.verification_checklist as unknown as VerificationItem[]
           : [],
         status: d.status as ProductDraft['status'],
         images_status: d.images_status as ProductDraft['images_status'],
@@ -99,8 +100,8 @@ export function useProductDraft(draftId: string) {
         ...data,
         fields: (data.fields || {}) as unknown as ProductDraftFields,
         images: Array.isArray(data.images) ? data.images as string[] : [],
-        verification_checklist: Array.isArray(data.verification_checklist) 
-          ? data.verification_checklist as unknown as VerificationItem[] 
+        verification_checklist: Array.isArray(data.verification_checklist)
+          ? data.verification_checklist as unknown as VerificationItem[]
           : [],
         status: data.status as ProductDraft['status'],
         images_status: data.images_status as ProductDraft['images_status'],
@@ -129,7 +130,7 @@ export function useUpdateProductDraft() {
         edited_by: user?.id,
         edited_at: new Date().toISOString(),
       };
-      
+
       if (updates.fields) dbUpdates.fields = updates.fields;
       if (updates.images) dbUpdates.images = updates.images;
       if (updates.images_status) dbUpdates.images_status = updates.images_status;
@@ -214,7 +215,7 @@ export function usePublishProductDraft() {
         .single();
 
       if (draftError) throw draftError;
-      
+
       const fields = draft.fields as ProductDraftFields;
 
       // 2. Create the product in the products table
@@ -223,6 +224,7 @@ export function usePublishProductDraft() {
         .insert({
           manufacturer_id: draft.manufacturer_id,
           name: fields.titulo?.value || 'Sin título',
+          brand: fields.marca?.value,
           model: fields.modelo?.value,
           description: fields.descripcionTecnica?.value,
           category: 'Importado', // Default category

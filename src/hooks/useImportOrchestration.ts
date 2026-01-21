@@ -106,108 +106,157 @@ export function useImportOrchestration() {
   }, []);
 
   /**
-   * Normalize import rows using AI (one at a time)
+   * Process Scanned PDF with Gemini Vision Logic
+   */
+  const processScannedPdf = useCallback(async (
+    jobId: string,
+    pdfPageImages: { pageNum: number; base64: string }[]
+  ): Promise<{ draftsCreated: number }> => {
+
+    // Chunk pages to avoid payload limits (e.g., 3 pages per request)
+    // Note: process-import is designed faithfully to take whatever is given. 
+    // Usually we send all pages if not too many, or chunk. 
+    // For safety, let's chunk by 3 pages.
+    const CHUNK_SIZE = 3;
+    let totalDrafts = 0;
+
+    setProgress({
+      phase: 'extracting',
+      current: 0,
+      total: pdfPageImages.length,
+      message: `Procesando ${pdfPageImages.length} páginas escaneadas...`
+    });
+
+    for (let i = 0; i < pdfPageImages.length; i += CHUNK_SIZE) {
+      const chunk = pdfPageImages.slice(i, i + CHUNK_SIZE);
+      const chunkIndex = Math.floor(i / CHUNK_SIZE) + 1;
+      const totalChunks = Math.ceil(pdfPageImages.length / CHUNK_SIZE);
+
+      setProgress(p => ({
+        ...p,
+        current: i + 1,
+        message: `Procesando lote de imágenes ${chunkIndex}/${totalChunks}...`
+      }));
+
+      try {
+        const { data, error } = await supabase.functions.invoke('process-import', {
+          body: { jobId, pdfPageImages: chunk }
+        });
+
+        if (error) {
+          console.error('Vision processing error:', error);
+          throw new Error(`Error procesando imágenes: ${error.message}`);
+        }
+
+        if (data?.success) {
+          totalDrafts += data.draftsCreated || 0;
+        } else {
+          console.error('Vision processing failed:', data);
+        }
+
+      } catch (err) {
+        console.error('Vision processing fatal:', err);
+        toast({
+          title: "Error en Visión IA",
+          description: "Falló el procesamiento de un lote de imágenes.",
+          variant: "destructive"
+        });
+      }
+    }
+
+    return { draftsCreated: totalDrafts };
+  }, [toast]);
+
+  /**
+   * Normalize import rows using AI (True Batching)
    */
   const normalizeRows = useCallback(async (
     rowIds: string[]
   ): Promise<{ draftsCreated: number }> => {
     let draftsCreated = 0;
-    const maxRetriesPerRow = 3;
-    const retryCountMap = new Map<string, number>();
+    const BATCH_SIZE = 5; // Updated to 5 as planned
 
     setProgress({
       phase: 'normalizing',
       current: 0,
       total: rowIds.length,
-      message: `Normalizando con IA...`
+      message: `Normalizando con IA (Lotes de ${BATCH_SIZE})...`
     });
 
-    // Process rows one at a time to avoid memory limits
-    for (let i = 0; i < rowIds.length; i++) {
-      const rowId = rowIds[i];
-      const currentRetries = retryCountMap.get(rowId) || 0;
+    for (let i = 0; i < rowIds.length; i += BATCH_SIZE) {
+      const batchIds = rowIds.slice(i, i + BATCH_SIZE);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(rowIds.length / BATCH_SIZE);
 
       setProgress(p => ({
         ...p,
-        current: i + 1,
-        message: `Normalizando fila ${i + 1} de ${rowIds.length}${currentRetries > 0 ? ` (reintento ${currentRetries})` : ''}...`
+        current: i,
+        message: `Normalizando lote ${batchNum} de ${totalBatches}...`
       }));
 
-      try {
-        const { data, error } = await supabase.functions.invoke('normalize-product', {
-          body: { rowId }
-        });
+      let retryCount = 0;
+      const MAX_RETRIES = 3;
+      let batchSuccess = false;
 
-        if (error) {
-          console.error(`Row ${rowId} normalization error:`, error);
-          const isRateLimit = error.message?.includes('429') ||
-            error.message?.includes('Límite') ||
-            error.message?.includes('rate limit') ||
-            error.message?.includes('RATE_LIMIT');
+      while (retryCount <= MAX_RETRIES && !batchSuccess) {
+        try {
+          const { data, error } = await supabase.functions.invoke('normalize-product', {
+            body: { rowIds: batchIds }
+          });
 
-          if (isRateLimit && currentRetries < maxRetriesPerRow) {
-            retryCountMap.set(rowId, currentRetries + 1);
+          if (error) {
+            console.error(`Batch ${batchNum} error:`, error);
+            const isRateLimit = error.message?.includes('429') ||
+              error.message?.includes('RESOURCE_EXHAUSTED');
+
+            if (isRateLimit) {
+              throw new Error('RATE_LIMIT');
+            }
+            throw error;
+          }
+
+          if (data?.success) {
+            // Calculate drafts created in this batch
+            const batchDrafts = data.results?.reduce((acc: number, r: any) => acc + (r.draftsCount || 0), 0) || 0;
+            draftsCreated += batchDrafts;
+            batchSuccess = true;
+          } else {
+            console.error(`Batch ${batchNum} internal failure:`, data?.error);
+            throw new Error(data?.error || 'Unknown batch error');
+          }
+
+        } catch (err: any) {
+          retryCount++;
+          console.error(`Batch ${batchNum} attempt ${retryCount} failed:`, err);
+
+          if (retryCount > MAX_RETRIES) {
+            console.error(`Batch ${batchNum} failed permanently.`);
             toast({
-              title: `Rate Limit (reintento ${currentRetries + 1}/${maxRetriesPerRow})`,
-              description: "Esperando 15s...",
+              title: "Error en Batch",
+              description: `El lote ${batchNum} falló después de varios intentos.`,
               variant: "destructive"
             });
-            await new Promise(r => setTimeout(r, 15000));
-            i--; // Retry same row
-            continue;
+            break; // Skip this batch, move to next
           }
-          // Log specific error for debugging
-          console.error(`Row ${rowId} failed after ${currentRetries} retries:`, error.message);
-          continue;
+
+          const isRateLimit = err.message === 'RATE_LIMIT' ||
+            err.message?.includes('429') ||
+            err.message?.includes('RESOURCE_EXHAUSTED');
+
+          const waitTime = isRateLimit ? 10000 * Math.pow(2, retryCount) : 5000; // Exponential backoff: 20s, 40s... or fixed 5s for others
+
+          setProgress(p => ({
+            ...p,
+            message: `Reintentando lote ${batchNum} en ${waitTime / 1000}s (Intento ${retryCount})...`
+          }));
+
+          await new Promise(r => setTimeout(r, waitTime));
         }
-
-        // Validate internal success
-        if (data?.success && data.results && data.results.length > 0) {
-          const rowResult = data.results[0];
-          if (rowResult.success) {
-            draftsCreated++;
-          } else {
-            console.error(`Row ${rowId} internal failure:`, rowResult.error);
-            const isRateLimitInternal = typeof rowResult.error === 'string' &&
-              (rowResult.error.includes('429') ||
-                rowResult.error.includes('rate limit') ||
-                rowResult.error.includes('RATE_LIMIT'));
-
-            if (isRateLimitInternal && currentRetries < maxRetriesPerRow) {
-              retryCountMap.set(rowId, currentRetries + 1);
-              toast({
-                title: `Rate Limit interno (reintento ${currentRetries + 1}/${maxRetriesPerRow})`,
-                description: "Reintentando en 15s...",
-                variant: "destructive"
-              });
-              await new Promise(r => setTimeout(r, 15000));
-              i--;
-              continue;
-            }
-
-            // Trigger a toast for the first error to alert the user
-            if (draftsCreated === 0) { // Only show once to avoid spam
-              toast({
-                title: "Error al procesar producto",
-                description: `Detalle: ${rowResult.error || 'Error desconocido'}`,
-                variant: "destructive"
-              });
-            }
-          }
-        } else {
-          console.error(`Row ${rowId} invalid response:`, data);
-        }
-      } catch (err) {
-        console.error(`Row ${rowId} normalization failed:`, err);
       }
 
-      // Long delay between rows (30s) to avoid Gemini rate limits
-      if (i < rowIds.length - 1) {
-        setProgress(p => ({
-          ...p,
-          message: `Fila ${i + 1} completada. Esperando 30s para evitar límites de API...`
-        }));
-        await new Promise(r => setTimeout(r, 30000));
+      // Small delay between successful batches to be nice to the API
+      if (batchSuccess && i + BATCH_SIZE < rowIds.length) {
+        await new Promise(r => setTimeout(r, 2000));
       }
     }
 
@@ -230,36 +279,53 @@ export function useImportOrchestration() {
   ): Promise<ImportOrchestrationResult> => {
     setIsProcessing(true);
     const allRowIds: string[] = [];
+    let draftsCreated = 0;
+
+    // Check if it's a scanned PDF
+    const isScannedPdf = options.pdfPageImages && options.pdfPageImages.length > 0;
 
     try {
-      // Phase 1: Extract Excel if present
-      if (options.excelRows && options.excelRows.length > 0) {
-        const result = await processExcel(jobId, options.excelFileId || null, options.excelRows);
-        allRowIds.push(...result.rowIds);
-      }
-
-      // Phase 2: Extract PDF pages if present
-      if (options.pdfText && options.pdfTotalPages && options.pdfTotalPages > 0) {
-        const result = await processPdfPages(
-          jobId,
-          options.pdfFileId || null,
-          options.pdfText,
-          options.pdfTotalPages
-        );
-        allRowIds.push(...result.rowIds);
-      }
-
-      // Phase 3: Normalize all rows with AI
-      let draftsCreated = 0;
-      if (allRowIds.length > 0) {
-        const result = await normalizeRows(allRowIds);
+      if (isScannedPdf) {
+        // --- Scanned PDF Flow ---
+        console.log('Detected Scanned PDF flow.');
+        const result = await processScannedPdf(jobId, options.pdfPageImages!);
         draftsCreated = result.draftsCreated;
+        // Note: Scanned PDF flow creates rows AND drafts directly in process-import.
+        // We essentially skip "normalization" phase because process-import does both.
+
+      } else {
+        // --- Standard Flow (Excel or Text PDF) ---
+
+        // Phase 1: Extract Excel if present
+        if (options.excelRows && options.excelRows.length > 0) {
+          const result = await processExcel(jobId, options.excelFileId || null, options.excelRows);
+          allRowIds.push(...result.rowIds);
+        }
+
+        // Phase 2: Extract PDF pages if present
+        if (options.pdfText && options.pdfTotalPages && options.pdfTotalPages > 0) {
+          const result = await processPdfPages(
+            jobId,
+            options.pdfFileId || null,
+            options.pdfText,
+            options.pdfTotalPages
+          );
+          allRowIds.push(...result.rowIds);
+        }
+
+        // Phase 3: Normalize all rows with AI
+        if (allRowIds.length > 0) {
+          const result = await normalizeRows(allRowIds);
+          draftsCreated = result.draftsCreated;
+        }
       }
+
+      const totalItems = isScannedPdf ? draftsCreated : allRowIds.length; // Approximate for scanned
 
       setProgress({
         phase: 'complete',
-        current: allRowIds.length,
-        total: allRowIds.length,
+        current: totalItems,
+        total: totalItems,
         message: `Completado: ${draftsCreated} productos creados`
       });
 
@@ -281,7 +347,7 @@ export function useImportOrchestration() {
     } finally {
       setIsProcessing(false);
     }
-  }, [processExcel, processPdfPages, normalizeRows]);
+  }, [processExcel, processPdfPages, normalizeRows, processScannedPdf]);
 
   const reset = useCallback(() => {
     setProgress({

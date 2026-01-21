@@ -1,18 +1,18 @@
-export type ImportJobStatus = 
-  | 'UPLOADED' 
-  | 'PARSED' 
-  | 'AI_READY' 
-  | 'HUMAN_VERIFIED' 
-  | 'PUBLISHED' 
+export type ImportJobStatus =
+  | 'UPLOADED'
+  | 'PARSED'
+  | 'AI_READY'
+  | 'HUMAN_VERIFIED'
+  | 'PUBLISHED'
   | 'FAILED';
 
 export type FileType = 'PRICE_LIST' | 'CATALOG' | 'IMAGES_ZIP' | 'OTHER';
 
-export type RowStatus = 
-  | 'PARSED' 
-  | 'AI_READY' 
-  | 'NEEDS_FIX' 
-  | 'HUMAN_VERIFIED' 
+export type RowStatus =
+  | 'PARSED'
+  | 'AI_READY'
+  | 'NEEDS_FIX'
+  | 'HUMAN_VERIFIED'
   | 'PUBLISHED';
 
 export interface ImportJobFile {
@@ -56,6 +56,7 @@ export interface ProductDraftFields {
   descripcionTecnica: FieldValue<string>;
   descripcionComercialSemantica: FieldValue<string>;
   precioUnitario: FieldValue<number> & { currency: string };
+  marca: FieldValue<string>;
   moq: FieldValue<number>;
   medidasNetas: FieldValue<{ length: number; width: number; height: number; unit: string }>;
   pesoNeto: FieldValue<number>;

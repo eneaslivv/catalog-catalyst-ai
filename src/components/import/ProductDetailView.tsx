@@ -6,11 +6,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { StatusBadge, ConfidenceIndicator } from './StatusIndicators';
 import { ProductDraft, ProductDraftFields, VerificationItem } from '@/hooks/useProductDrafts';
-import { 
-  ArrowLeft, 
-  ArrowRight, 
-  Save, 
-  CheckCircle2, 
+import {
+  ArrowLeft,
+  ArrowRight,
+  Save,
+  CheckCircle2,
   AlertTriangle,
   FileText,
   Link2,
@@ -34,6 +34,7 @@ interface ProductDetailViewProps {
 
 const fieldLabels: Record<keyof ProductDraftFields, string> = {
   modelo: 'Modelo/SKU',
+  marca: 'Marca',
   titulo: 'Título',
   descripcionTecnica: 'Descripción Técnica',
   descripcionComercialSemantica: 'Descripción Comercial Semántica',
@@ -57,23 +58,26 @@ const fieldLabels: Record<keyof ProductDraftFields, string> = {
 
 interface FieldEditorProps {
   label: string;
-  field: { value: any; confidence: number; sources: string[]; warnings: string[]; currency?: string };
+  field?: { value: any; confidence: number; sources: string[]; warnings: string[]; currency?: string };
   type?: 'text' | 'number' | 'textarea';
   suffix?: string;
   onEdit: (value: any) => void;
 }
 
 function FieldEditor({ label, field, type = 'text', suffix, onEdit }: FieldEditorProps) {
+  // Safe default if field is undefined
+  const safeField = field || { value: '', confidence: 0, sources: [], warnings: [] };
+
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(
-    typeof field.value === 'object' ? JSON.stringify(field.value) : String(field.value ?? '')
+    typeof safeField.value === 'object' ? JSON.stringify(safeField.value) : String(safeField.value ?? '')
   );
 
-  const hasWarnings = field.warnings.length > 0;
-  const confidenceColor = field.confidence >= 0.85 
-    ? 'border-l-confidence-high' 
-    : field.confidence >= 0.65 
-      ? 'border-l-confidence-medium' 
+  const hasWarnings = safeField.warnings.length > 0;
+  const confidenceColor = safeField.confidence >= 0.85
+    ? 'border-l-confidence-high'
+    : safeField.confidence >= 0.65
+      ? 'border-l-confidence-medium'
       : 'border-l-confidence-low';
 
   const handleSave = () => {
@@ -90,7 +94,7 @@ function FieldEditor({ label, field, type = 'text', suffix, onEdit }: FieldEdito
             {suffix && <span className="text-muted-foreground font-normal">({suffix})</span>}
             {hasWarnings && <AlertTriangle className="w-4 h-4 text-warning" />}
           </label>
-          
+
           {isEditing ? (
             <div className="mt-2 space-y-2">
               {type === 'textarea' ? (
@@ -121,20 +125,20 @@ function FieldEditor({ label, field, type = 'text', suffix, onEdit }: FieldEdito
             </div>
           ) : (
             <p className="text-sm mt-1">
-              {typeof field.value === 'object' 
-                ? JSON.stringify(field.value) 
-                : field.value ?? <span className="text-muted-foreground italic">Sin datos</span>
+              {typeof safeField.value === 'object'
+                ? JSON.stringify(safeField.value)
+                : safeField.value || <span className="text-muted-foreground italic">Sin datos</span>
               }
             </p>
           )}
         </div>
-        
+
         <div className="flex items-center gap-2">
-          <ConfidenceIndicator confidence={field.confidence} showValue size="sm" />
+          <ConfidenceIndicator confidence={safeField.confidence} showValue size="sm" />
           {!isEditing && (
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8"
               onClick={() => setIsEditing(true)}
             >
@@ -145,10 +149,10 @@ function FieldEditor({ label, field, type = 'text', suffix, onEdit }: FieldEdito
       </div>
 
       {/* Sources */}
-      {field.sources.length > 0 && (
+      {safeField.sources.length > 0 && (
         <div className="field-source flex items-center gap-2 flex-wrap">
           <span className="text-muted-foreground">Fuentes:</span>
-          {field.sources.map((source, idx) => (
+          {safeField.sources.map((source, idx) => (
             <span key={idx} className="px-2 py-0.5 bg-muted rounded text-xs">
               {source}
             </span>
@@ -159,7 +163,7 @@ function FieldEditor({ label, field, type = 'text', suffix, onEdit }: FieldEdito
       {/* Warnings */}
       {hasWarnings && (
         <div className="mt-2 space-y-1">
-          {field.warnings.map((warning, idx) => (
+          {safeField.warnings.map((warning, idx) => (
             <div key={idx} className="flex items-start gap-2 text-warning text-xs">
               <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
               <span>{warning}</span>
@@ -186,7 +190,7 @@ export function ProductDetailView({
   const [activeTab, setActiveTab] = useState<'fields' | 'sources'>('fields');
 
   const updateField = <K extends keyof ProductDraftFields>(
-    fieldKey: K, 
+    fieldKey: K,
     value: ProductDraftFields[K]['value']
   ) => {
     setLocalDraft(prev => ({
@@ -194,7 +198,7 @@ export function ProductDetailView({
       fields: {
         ...prev.fields,
         [fieldKey]: {
-          ...prev.fields[fieldKey],
+          ...(prev.fields[fieldKey] || { confidence: 1, sources: [], warnings: [] }),
           value,
           confidence: 1, // User edited = full confidence
         }
@@ -215,6 +219,9 @@ export function ProductDetailView({
   const imagesOk = localDraft.images.length >= 2;
   const canPublish = allVerified && imagesOk;
 
+  // Use optional chaining safely just in case, though field editor handles it now
+  const fields = localDraft.fields || {};
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -226,11 +233,11 @@ export function ProductDetailView({
           </Button>
           <div>
             <h2 className="text-xl font-semibold flex items-center gap-3">
-              {localDraft.fields.modelo.value || 'Sin modelo'}
+              {fields.modelo?.value || 'Sin modelo'}
               <StatusBadge status={localDraft.status} />
             </h2>
             <p className="text-sm text-muted-foreground">
-              {localDraft.fields.titulo.value || 'Sin título'}
+              {fields.titulo?.value || 'Sin título'}
             </p>
           </div>
         </div>
@@ -255,26 +262,24 @@ export function ProductDetailView({
         <Card className="flex flex-col overflow-hidden">
           <div className="flex border-b border-border">
             <button
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'sources' 
-                  ? 'bg-muted text-foreground' 
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'sources'
+                  ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
               onClick={() => setActiveTab('sources')}
             >
               <FileText className="w-4 h-4 inline mr-2" />
-              Fuentes
+              <div className="hidden sm:inline">Fuentes</div>
             </button>
             <button
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
-                activeTab === 'fields' 
-                  ? 'bg-muted text-foreground' 
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'fields'
+                  ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
-              }`}
+                }`}
               onClick={() => setActiveTab('fields')}
             >
               <Edit2 className="w-4 h-4 inline mr-2" />
-              Campos
+              <div className="hidden sm:inline">Campos</div>
             </button>
           </div>
 
@@ -303,11 +308,11 @@ export function ProductDetailView({
                   <div className="bg-background border rounded p-3 text-xs font-mono">
                     <div className="grid grid-cols-2 gap-2">
                       <span className="text-muted-foreground">SKU:</span>
-                      <span>{localDraft.fields.modelo.value}</span>
+                      <span>{fields.modelo?.value}</span>
                       <span className="text-muted-foreground">Price:</span>
-                      <span>${localDraft.fields.precioUnitario.value}</span>
+                      <span>${fields.precioUnitario?.value}</span>
                       <span className="text-muted-foreground">MOQ:</span>
-                      <span>{localDraft.fields.moq.value}</span>
+                      <span>{fields.moq?.value}</span>
                     </div>
                   </div>
                 </div>
@@ -315,24 +320,29 @@ export function ProductDetailView({
             ) : (
               <div className="space-y-4">
                 <FieldEditor
+                  label={fieldLabels.marca}
+                  field={fields.marca}
+                  onEdit={v => updateField('marca', v)}
+                />
+                <FieldEditor
                   label={fieldLabels.modelo}
-                  field={localDraft.fields.modelo}
+                  field={fields.modelo}
                   onEdit={v => updateField('modelo', v)}
                 />
                 <FieldEditor
                   label={fieldLabels.titulo}
-                  field={localDraft.fields.titulo}
+                  field={fields.titulo}
                   onEdit={v => updateField('titulo', v)}
                 />
                 <FieldEditor
                   label={fieldLabels.descripcionTecnica}
-                  field={localDraft.fields.descripcionTecnica}
+                  field={fields.descripcionTecnica}
                   type="textarea"
                   onEdit={v => updateField('descripcionTecnica', v)}
                 />
                 <FieldEditor
                   label={fieldLabels.descripcionComercialSemantica}
-                  field={localDraft.fields.descripcionComercialSemantica}
+                  field={fields.descripcionComercialSemantica}
                   type="textarea"
                   onEdit={v => updateField('descripcionComercialSemantica', v)}
                 />
@@ -342,33 +352,33 @@ export function ProductDetailView({
         </Card>
 
         {/* Right panel: Verification checklist + images + actions */}
-        <div className="flex flex-col gap-4 overflow-y-auto">
+        <div className="flex flex-col gap-4 overflow-y-auto w-full lg:w-[400px]">
           {/* Pricing & quantities */}
           <Card className="p-4 space-y-3">
             <h3 className="font-medium">Precio y Cantidades</h3>
             <div className="grid grid-cols-2 gap-3">
               <FieldEditor
                 label={fieldLabels.precioUnitario}
-                field={localDraft.fields.precioUnitario}
+                field={fields.precioUnitario}
                 type="number"
-                suffix={localDraft.fields.precioUnitario.currency}
+                suffix={fields.precioUnitario?.currency}
                 onEdit={v => updateField('precioUnitario', v)}
               />
               <FieldEditor
                 label={fieldLabels.moq}
-                field={localDraft.fields.moq}
+                field={fields.moq}
                 type="number"
                 onEdit={v => updateField('moq', v)}
               />
               <FieldEditor
                 label={fieldLabels.unidadesEnPaquete}
-                field={localDraft.fields.unidadesEnPaquete}
+                field={fields.unidadesEnPaquete}
                 type="number"
                 onEdit={v => updateField('unidadesEnPaquete', v)}
               />
               <FieldEditor
                 label={fieldLabels.cantidadBultos}
-                field={localDraft.fields.cantidadBultos}
+                field={fields.cantidadBultos}
                 type="number"
                 onEdit={v => updateField('cantidadBultos', v)}
               />
@@ -388,11 +398,17 @@ export function ProductDetailView({
             </div>
             <div className="grid grid-cols-3 gap-2">
               {localDraft.images.map((img, idx) => (
-                <div 
+                <div
                   key={idx}
-                  className="aspect-square bg-muted rounded-lg flex items-center justify-center border"
+                  className="aspect-square bg-muted rounded-lg flex items-center justify-center border relative group"
                 >
-                  <ImageIcon className="w-8 h-8 text-muted-foreground" />
+                  <img src={img} alt="Product" className="w-full h-full object-cover rounded-lg" onError={(e) => {
+                    (e.target as HTMLImageElement).src = '';
+                    (e.target as HTMLImageElement).className = 'hidden';
+                    // Fallback logic could be complex, simple hide for now
+                  }} />
+                  {/* Fallback icon if image fails or is loading */}
+                  <ImageIcon className="w-8 h-8 text-muted-foreground absolute z-[-1]" />
                 </div>
               ))}
               {localDraft.images.length < 2 && (
@@ -413,12 +429,12 @@ export function ProductDetailView({
             </h3>
             <div className="space-y-2">
               {localDraft.verification_checklist.map(verification => (
-                <div 
+                <div
                   key={verification.id}
-                  className="checklist-item"
+                  className="checklist-item cursor-pointer hover:bg-muted/50 p-1.5 rounded transition-colors flex items-center gap-3"
                   onClick={() => toggleVerification(verification.id)}
                 >
-                  <Checkbox 
+                  <Checkbox
                     checked={verification.checked}
                     onCheckedChange={() => toggleVerification(verification.id)}
                   />
@@ -432,24 +448,24 @@ export function ProductDetailView({
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               className="flex-1"
               onClick={() => onSave(localDraft)}
             >
               <Save className="w-4 h-4 mr-2" />
               Guardar
             </Button>
-            <Button 
+            <Button
               variant="success"
               className="flex-1"
               disabled={!allVerified}
               onClick={() => onVerify(localDraft)}
             >
               <CheckCircle2 className="w-4 h-4 mr-2" />
-              Marcar Verificado
+              Verificar
             </Button>
-            <Button 
+            <Button
               variant="hero"
               className="flex-1"
               disabled={!canPublish}

@@ -205,11 +205,29 @@ export function FileUploadWizard({ onComplete, onCancel, manufacturerId }: FileU
 
         try {
           const { text, pageCount } = await extractTextFromPdf(file);
-          if (!text || text.length < 10) {
-            console.warn("Extracted text is empty or too short");
-            setParseError(`Advertencia: No se pudo extraer texto de ${file.name}. ¿Es un PDF escaneado?`);
+
+          // Check if it's a scanned PDF (low text content)
+          const isScanned = text.length < 100;
+
+          if (isScanned) {
+            console.log(`PDF ${file.name} appears to be scanned (text length: ${text.length}). Rendering images...`);
+            toast({
+              title: "PDF Escaneado detectado",
+              description: "Procesando como imágenes (Visión IA)...",
+            });
+
+            try {
+              const images = await renderPdfPages(file, 10); // Limit to 10 pages for now to avoid crashes
+              uploadedFile.pageImages = images;
+              uploadedFile.extractedText = "SCANNED_PDF_MODE"; // Flag for UI
+            } catch (imgErr) {
+              console.error("Error rendering PDF pages:", imgErr);
+              setParseError("Error renderizando imágenes del PDF.");
+            }
+          } else {
+            uploadedFile.extractedText = text;
           }
-          uploadedFile.extractedText = text;
+
           uploadedFile.pageCount = pageCount;
           console.log(`PDF ${file.name}: ${pageCount} pages, ${text.length} chars extracted`);
         } catch (err) {
@@ -294,14 +312,21 @@ export function FileUploadWizard({ onComplete, onCancel, manufacturerId }: FileU
       }
 
       // Collect PDF data
-      const pdfFile = files.find(f => f.type === 'catalog' && f.extractedText);
+      const pdfFile = files.find(f => f.type === 'catalog');
+      let pdfPageImages: { pageNum: number; base64: string }[] | undefined;
+
       if (pdfFile) {
-        pdfText = pdfFile.extractedText;
+        // If it has pageImages, it's a scanned PDF
+        if (pdfFile.pageImages && pdfFile.pageImages.length > 0) {
+          pdfPageImages = pdfFile.pageImages;
+        } else if (pdfFile.extractedText) {
+          pdfText = pdfFile.extractedText;
+        }
         pdfTotalPages = pdfFile.pageCount;
       }
 
       // Validate we have something to process
-      if (excelRows.length === 0 && !pdfText) {
+      if (excelRows.length === 0 && !pdfText && !pdfPageImages) {
         throw new Error('No se encontraron datos para procesar');
       }
 
@@ -309,7 +334,8 @@ export function FileUploadWizard({ onComplete, onCancel, manufacturerId }: FileU
       const result = await orchestrateImport(job.id, {
         excelRows: excelRows.length > 0 ? excelRows : undefined,
         pdfText,
-        pdfTotalPages
+        pdfTotalPages,
+        pdfPageImages
       });
 
       toast({

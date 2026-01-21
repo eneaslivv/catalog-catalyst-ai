@@ -17,14 +17,16 @@ Tu tarea es identificar TODOS los productos visibles en la información proporci
 
 REGLAS CRÍTICAS:
 1. Si no encuentras información para un campo, devuelve null. NUNCA inventes datos.
-2. Cada campo debe ser un objeto: { value: <dato>, confidence: <0-1>, sources: [<ej: "texto", "imagen">], warnings: [<lista de strings si hay dudas>] }
-3. Los precios incluyen moneda (USD, EUR, CNY).
-4. Para medidas, usa el objeto { length, width, height, unit }.
-5. Si ves una lista o tabla, extrae CADA fila como un producto independiente.
+2. Identifica el FABRICANTE o COMPAÑÍA en el encabezado o logo. Usa ese nombre como valor para el campo "marca". ES OBLIGATORIO.
+3. Cada campo debe ser un objeto: { value: <dato>, confidence: <0-1>, sources: [<ej: "texto", "imagen">], warnings: [<lista de strings si hay dudas>] }
+4. Los precios incluyen moneda (USD, EUR, CNY).
+5. Para medidas, usa el objeto { length, width, height, unit }.
+6. Si ves una lista o tabla, extrae CADA fila como un producto independiente.
 
 CAMPOS A EXTRAER POR PRODUCTO:
 - modelo: SKU, código del modelo o referencia.
 - titulo: Nombre del producto.
+- marca: Fabricante/Marca del producto.
 - descripcionTecnica: Especificaciones técnicas.
 - descripcionComercialSemantica: Descripción atractiva basada en características.
 - precioUnitario: { value: número, currency: "USD"|"EUR"|"CNY" }
@@ -43,7 +45,7 @@ CAMPOS A EXTRAER POR PRODUCTO:
 - tiempoProduccion: { value: { stockStatus: string, leadTimeDays: number }, ... }
 
 RESPUESTA JSON (ESTRICTA):
-{ "products": [ { "modelo": { "value": "...", "confidence": 0.9, "sources": ["..."], "warnings": [] }, ... } ] }`;
+{ "products": [ { "modelo": { "value": "...", "confidence": 0.9, "sources": ["..."], "warnings": [] }, "marca": { "value": "...", ... }, ... } ] }`;
 
 async function callGeminiVision(base64Image: string, prompt: string): Promise<string> {
   const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
@@ -148,7 +150,7 @@ serve(async (req) => {
 
       // Ensure every field has the object structure if AI failed to provide it
       const normalizedP: any = {};
-      const fields = ['modelo', 'titulo', 'descripcionTecnica', 'descripcionComercialSemantica', 'precioUnitario', 'moq', 'medidasNetas', 'pesoNeto', 'medidasBrutas', 'pesoBruto', 'unidadesEnPaquete', 'cantidadBultos', 'hsCode', 'notasTransporte', 'garantia', 'terminosCondiciones', 'puertoEntrega', 'tiempoProduccion'];
+      const fields = ['modelo', 'titulo', 'marca', 'descripcionTecnica', 'descripcionComercialSemantica', 'precioUnitario', 'moq', 'medidasNetas', 'pesoNeto', 'medidasBrutas', 'pesoBruto', 'unidadesEnPaquete', 'cantidadBultos', 'hsCode', 'notasTransporte', 'garantia', 'terminosCondiciones', 'puertoEntrega', 'tiempoProduccion'];
 
       fields.forEach(f => {
         const val = p[f];
