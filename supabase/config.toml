@@ -1,0 +1,13 @@
+project_id = "mhzpwpnjucrymblvjeno"
+
+[functions.process-import]
+verify_jwt = true
+
+[functions.extract-pdf-text]
+verify_jwt = true
+
+[functions.extract-excel]
+verify_jwt = true
+
+[functions.normalize-product]
+verify_jwt = true
