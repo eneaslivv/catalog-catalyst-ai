@@ -23,7 +23,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=your_anon_key
 Edge functions are in `supabase/functions/` and deployed to Supabase project ID: `mhzpwpnjucrymblvjeno`
 
 ### Required Secrets (in Supabase Dashboard)
-- `LOVABLE_API_KEY` - For AI normalization features
+
 
 ## Deploy
 
